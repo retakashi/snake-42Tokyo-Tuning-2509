@@ -46,6 +46,34 @@ func (r *OrderRepository) UpdateStatuses(ctx context.Context, orderIDs []int64, 
 	return err
 }
 
+// CountShipping returns the current number of shipping orders.
+func (r *OrderRepository) CountShipping(ctx context.Context) (int, error) {
+	const query = "SELECT COUNT(*) FROM orders WHERE shipped_status = 'shipping'"
+	var total int
+	if err := r.db.GetContext(ctx, &total, query); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// CloneAsShipping duplicates specified orders as new shipping entries to keep supply available.
+func (r *OrderRepository) CloneAsShipping(ctx context.Context, orderIDs []int64) error {
+	if len(orderIDs) == 0 {
+		return nil
+	}
+	query, args, err := sqlx.In(
+		"INSERT INTO orders (user_id, product_id, shipped_status, created_at) "+
+			"SELECT user_id, product_id, 'shipping', NOW() FROM orders WHERE order_id IN (?)",
+		orderIDs,
+	)
+	if err != nil {
+		return err
+	}
+	query = r.db.Rebind(query)
+	_, err = r.db.ExecContext(ctx, query, args...)
+	return err
+}
+
 // 配送中(shipped_status:shipping)の注文一覧を取得
 func (r *OrderRepository) GetShippingOrders(ctx context.Context) ([]model.Order, error) {
 	var orders []model.Order

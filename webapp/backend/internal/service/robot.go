@@ -6,14 +6,39 @@ import (
 	"backend/internal/service/utils"
 	"context"
 	"log"
+	"os"
+	"strconv"
 )
 
 type RobotService struct {
-	store *repository.Store
+	store        *repository.Store
+	cloneEnabled bool
+	supplyTarget int
 }
 
 func NewRobotService(store *repository.Store) *RobotService {
-	return &RobotService{store: store}
+	cloneEnabled := true
+	if v := os.Getenv("ROBOT_SHIPPING_CLONE_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cloneEnabled = b
+		}
+	}
+
+	supplyTarget := 500
+	if v := os.Getenv("ROBOT_SHIPPING_SUPPLY_TARGET"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			supplyTarget = n
+		}
+	}
+	if supplyTarget < 0 {
+		supplyTarget = 0
+	}
+
+	return &RobotService{
+		store:        store,
+		cloneEnabled: cloneEnabled,
+		supplyTarget: supplyTarget,
+	}
 }
 
 func (s *RobotService) GenerateDeliveryPlan(ctx context.Context, robotID string, capacity int) (*model.DeliveryPlan, error) {
@@ -51,7 +76,23 @@ func (s *RobotService) GenerateDeliveryPlan(ctx context.Context, robotID string,
 
 func (s *RobotService) UpdateOrderStatus(ctx context.Context, orderID int64, newStatus string) error {
 	return utils.WithTimeout(ctx, func(ctx context.Context) error {
-		return s.store.OrderRepo.UpdateStatuses(ctx, []int64{orderID}, newStatus)
+		return s.store.ExecTx(ctx, func(txStore *repository.Store) error {
+			if err := txStore.OrderRepo.UpdateStatuses(ctx, []int64{orderID}, newStatus); err != nil {
+				return err
+			}
+			if newStatus == "completed" && s.cloneEnabled && s.supplyTarget > 0 {
+				shippingCount, err := txStore.OrderRepo.CountShipping(ctx)
+				if err != nil {
+					return err
+				}
+				if shippingCount < s.supplyTarget {
+					if err := txStore.OrderRepo.CloneAsShipping(ctx, []int64{orderID}); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
 	})
 }
 
