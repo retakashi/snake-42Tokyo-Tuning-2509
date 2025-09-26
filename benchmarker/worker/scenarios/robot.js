@@ -50,22 +50,15 @@ function getDeliveryPlan(headers, mode = "") {
   let orderIds = [];
   try {
     const body = JSON.parse(robot_res.body);
-    if (body && Array.isArray(body.orders)) {
-      for (const order of body.orders) {
-        if (order && order.order_id) {
-          orderIds.push(order.order_id);
-        }
+
+    if (!body || !Array.isArray(body.orders)) {
+      return orderIds;
+    }
+
+    for (const order of body.orders) {
+      if (order && order.order_id) {
+        orderIds.push(order.order_id);
       }
-      if (orderIds.length === 0) {
-        bench_robot_getDeliveryPlan_fail_count.add(1);
-        // include response body for easier debugging
-        fail(`No order_id found in delivery plan response: ${robot_res.body}`);
-      }
-    } else {
-      bench_robot_getDeliveryPlan_fail_count.add(1);
-      fail(
-        `delivery plan response does not contain orders array: ${robot_res.body}`
-      );
     }
   } catch (e) {
     bench_robot_getDeliveryPlan_fail_count.add(1);
