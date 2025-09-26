@@ -8,6 +8,8 @@
 # usage ./init.sh [VMのパブリックIPアドレス] [秘密鍵のパス]
 #==================================
 
+mkdir -p ./.da
+
 if [[ -e ./.da/.initLock ]]; then
     echo "lockファイルがあるため処理を中断しました。"
     exit 1
@@ -28,7 +30,7 @@ else
 	webUrl="http://localhost/login"
 	vmDomain=$1
 	privateKeyPath=$2
-	scp -i $privateKeyPath azureuser@${vmDomain}:/.da/.docker_token ./.da/.docker_token
+	scp -i "$privateKeyPath" azureuser@${vmDomain}:/.da/.docker_token ./.da/.docker_token
 fi
 curl -L -o ./.da/restoreSQL.zip https://github.com/DreamArts/42Tokyo-Tuning-2509/releases/download/restore_data-v1.0.0/restoreSQL.zip
 unzip ./.da/restoreSQL.zip -d ./webapp/mysql/init/ 
