@@ -3,6 +3,7 @@ package repository
 import (
 	"backend/internal/model"
 	"context"
+	"fmt"
 )
 
 type ProductRepository struct {
@@ -13,38 +14,37 @@ func NewProductRepository(db DBTX) *ProductRepository {
 	return &ProductRepository{db: db}
 }
 
-// 商品一覧を全件取得し、アプリケーション側でページング処理を行う
+// 商品一覧を取得（検索・ソート・ページングはDB側で実施）
 func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
-	var products []model.Product
-	baseQuery := `
-		SELECT product_id, name, value, weight, image, description
-		FROM products
-	`
-	args := []interface{}{}
+	var (
+		products []model.Product
+		total    int
+	)
 
+	filters := ""
+	args := []interface{}{}
 	if req.Search != "" {
-		baseQuery += " WHERE (name LIKE ? OR description LIKE ?)"
+		filters = " WHERE (name LIKE ? OR description LIKE ?)"
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern, searchPattern)
 	}
 
-	baseQuery += " ORDER BY " + req.SortField + " " + req.SortOrder + " , product_id ASC"
+	countQuery := "SELECT COUNT(*) FROM products" + filters
+	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []model.Product{}, 0, nil
+	}
 
-	err := r.db.SelectContext(ctx, &products, baseQuery, args...)
-	if err != nil {
+	orderClause := fmt.Sprintf(" ORDER BY %s %s, product_id ASC", req.SortField, req.SortOrder)
+	query := "SELECT product_id, name, value, weight, image, description FROM products" + filters + orderClause + " LIMIT ? OFFSET ?"
+	listArgs := append([]interface{}{}, args...)
+	listArgs = append(listArgs, req.PageSize, req.Offset)
+
+	if err := r.db.SelectContext(ctx, &products, query, listArgs...); err != nil {
 		return nil, 0, err
 	}
 
-	total := len(products)
-	start := req.Offset
-	end := req.Offset + req.PageSize
-	if start > total {
-		start = total
-	}
-	if end > total {
-		end = total
-	}
-	pagedProducts := products[start:end]
-
-	return pagedProducts, total, nil
+	return products, total, nil
 }
