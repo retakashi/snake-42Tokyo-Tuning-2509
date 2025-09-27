@@ -27,11 +27,6 @@ func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []m
 
 	var insertedOrderIDs []string
 
-	tracer := otel.Tracer("app/custom")
-	ctx, span := tracer.Start(ctx, "CreateOrders")
-	defer span.End()
-	span.SetAttributes(attribute.Int("user.id", userID), attribute.Int("items.count", len(items)))
-
 	err := s.store.ExecTx(ctx, func(txStore *repository.Store) error {
 		itemsToProcess := make(map[int]int)
 		for _, item := range items {
@@ -67,6 +62,31 @@ func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []m
 }
 
 func (s *ProductService) FetchProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
+	// トレーシングの開始
+	tracer := otel.Tracer("service.product")
+	ctx, span := tracer.Start(ctx, "ProductService.FetchProducts")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int("user.id", userID),
+		attribute.Int("request.page", req.Page),
+		attribute.Int("request.page_size", req.PageSize),
+		attribute.String("request.sort_field", req.SortField),
+		attribute.String("request.sort_order", req.SortOrder),
+		attribute.String("request.search", req.Search),
+	)
+	////
+
 	products, total, err := s.store.ProductRepo.ListProducts(ctx, userID, req)
+	////
+	if err != nil {
+		span.RecordError(err)
+		return nil, 0, err
+	}
+
+	span.SetAttributes(
+		attribute.Int("response.total", total),
+		attribute.Int("response.count", len(products)),
+	)
+	////
 	return products, total, err
 }

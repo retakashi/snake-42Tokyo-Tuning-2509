@@ -8,6 +8,9 @@ import (
 	"log"
 	"os"
 	"strconv"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type RobotService struct {
@@ -42,18 +45,43 @@ func NewRobotService(store *repository.Store) *RobotService {
 }
 
 func (s *RobotService) GenerateDeliveryPlan(ctx context.Context, robotID string, capacity int) (*model.DeliveryPlan, error) {
+	// Tracingの開始
+	tracer := otel.Tracer("service.robot")
+	ctx, span := tracer.Start(ctx, "RobotService.GenerateDeliveryPlan")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("robot.id", robotID),
+		attribute.Int("robot.capacity", capacity),
+	)
+	////
+
 	var plan model.DeliveryPlan
 
 	err := utils.WithTimeout(ctx, func(ctx context.Context) error {
 		return s.store.ExecTx(ctx, func(txStore *repository.Store) error {
 			orders, err := txStore.OrderRepo.GetShippingOrders(ctx)
 			if err != nil {
+
+				span.RecordError(err) // トレーシングにエラーを記録
 				return err
 			}
+
+			span.SetAttributes(attribute.Int("orders.available", len(orders))) // 利用可能な注文数をトレーシングに記録
+
 			plan, err = selectOrdersForDelivery(ctx, orders, robotID, capacity)
 			if err != nil {
+				span.RecordError(err) // トレーシングにエラーを記録
 				return err
 			}
+
+			// 配送計画の詳細をトレーシングに記録
+			span.SetAttributes(
+				attribute.Int("plan.orders_selected", len(plan.Orders)),
+				attribute.Int("plan.total_weight", plan.TotalWeight),
+				attribute.Int("plan.total_value", plan.TotalValue),
+			)
+			////
+
 			if len(plan.Orders) > 0 {
 				orderIDs := make([]int64, len(plan.Orders))
 				for i, order := range plan.Orders {
@@ -61,6 +89,7 @@ func (s *RobotService) GenerateDeliveryPlan(ctx context.Context, robotID string,
 				}
 
 				if err := txStore.OrderRepo.UpdateStatuses(ctx, orderIDs, "delivering"); err != nil {
+					span.RecordError(err) // トレーシングにエラーを記録
 					return err
 				}
 				log.Printf("Updated status to 'delivering' for %d orders", len(orderIDs))
@@ -75,20 +104,42 @@ func (s *RobotService) GenerateDeliveryPlan(ctx context.Context, robotID string,
 }
 
 func (s *RobotService) UpdateOrderStatus(ctx context.Context, orderID int64, newStatus string) error {
+	// Tracingの開始
+	tracer := otel.Tracer("service.robot")
+	ctx, span := tracer.Start(ctx, "RobotService.UpdateOrderStatus")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int64("order.id", orderID),
+		attribute.String("order.new_status", newStatus),
+	)
+	////
+
 	return utils.WithTimeout(ctx, func(ctx context.Context) error {
 		return s.store.ExecTx(ctx, func(txStore *repository.Store) error {
 			if err := txStore.OrderRepo.UpdateStatuses(ctx, []int64{orderID}, newStatus); err != nil {
+				span.RecordError(err) // トレーシングにエラーを記録
 				return err
 			}
 			if newStatus == "completed" && s.cloneEnabled && s.supplyTarget > 0 {
+				span.AddEvent("checking supply for cloning") // トレーシングにイベントを記録
 				shippingCount, err := txStore.OrderRepo.CountShipping(ctx)
 				if err != nil {
+					span.RecordError(err) // トレーシングにエラーを記録
 					return err
 				}
+				// 現在の配送中注文数と目標値をトレーシングに記録
+				span.SetAttributes(
+					attribute.Int("supply.current_shipping", shippingCount),
+					attribute.Int("supply.target", s.supplyTarget),
+				)
+				////
+
 				if shippingCount < s.supplyTarget {
 					if err := txStore.OrderRepo.CloneAsShipping(ctx, []int64{orderID}); err != nil {
+						span.RecordError(err) // トレーシングにエラーを記録
 						return err
 					}
+					span.AddEvent("order cloned for supply") // トレーシングにイベントを記録
 				}
 			}
 			return nil

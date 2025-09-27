@@ -20,8 +20,8 @@ func sanitizeListRequest(req *model.ListRequest, allowedFields map[string]string
 	order := strings.ToLower(req.SortOrder)
 	switch order {
 	case "asc", "desc":
-		req.SortOrder = strings.ToUpper(order)
+		req.SortOrder = order
 	default:
-		req.SortOrder = strings.ToUpper(defaultOrder)
+		req.SortOrder = strings.ToLower(defaultOrder)
 	}
 }

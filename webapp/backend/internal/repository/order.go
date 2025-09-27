@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -92,6 +93,11 @@ func (r *OrderRepository) GetShippingOrders(ctx context.Context) ([]model.Order,
 
 // 注文履歴一覧を取得
 func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.ListRequest) ([]model.Order, int, error) {
+	var (
+		orders []model.Order
+		total  int
+	)
+
 	filters := []string{"o.user_id = ?"}
 	args := []interface{}{userID}
 	if req.Search != "" {
@@ -103,25 +109,14 @@ func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.
 		args = append(args, pattern)
 	}
 
-	whereClause := ""
-	if len(filters) > 0 {
-		whereClause = " WHERE " + strings.Join(filters, " AND ")
-	}
-
-	countQuery := "SELECT COUNT(*) FROM orders o JOIN products p ON o.product_id = p.product_id" + whereClause
-	var total int
-	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
-		return nil, 0, err
-	}
-	if total == 0 {
-		return []model.Order{}, 0, nil
-	}
+	whereClause := " WHERE " + strings.Join(filters, " AND ")
 
 	orderClause := fmt.Sprintf(" ORDER BY %s %s", req.SortField, req.SortOrder)
 	if req.SortField != "o.order_id" {
 		orderClause += ", o.order_id ASC"
 	}
 
+	countQuery := "SELECT COUNT(*) FROM orders o JOIN products p ON o.product_id = p.product_id" + whereClause
 	query := fmt.Sprintf(`
 		SELECT o.order_id, o.user_id, o.product_id, p.name AS product_name, o.shipped_status, o.created_at, o.arrived_at, p.weight, p.value
 		FROM orders o
@@ -130,9 +125,39 @@ func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.
 	listArgs := append([]interface{}{}, args...)
 	listArgs = append(listArgs, req.PageSize, req.Offset)
 
-	var orders []model.Order
-	if err := r.db.SelectContext(ctx, &orders, query, listArgs...); err != nil {
-		return nil, 0, err
+	errCh := make(chan error, 2)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+			errCh <- err
+			cancel()
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := r.db.SelectContext(ctx, &orders, query, listArgs...); err != nil {
+			errCh <- err
+			cancel()
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	if total == 0 {
+		return []model.Order{}, 0, nil
 	}
 
 	return orders, total, nil
