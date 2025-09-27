@@ -35,12 +35,11 @@ func (r *SessionRepository) Create(ctx context.Context, userBusinessID int, dura
 // セッションIDからユーザーIDを取得
 func (r *SessionRepository) FindUserBySessionID(ctx context.Context, sessionID string) (int, error) {
 	var userID int
+	// JOINを避けて直接セッションテーブルから検索（パフォーマンス最適化）
 	query := `
-		SELECT 
-			u.user_id
-		FROM users u
-		JOIN user_sessions s ON u.user_id = s.user_id
-		WHERE s.session_uuid = ? AND s.expires_at > ?`
+		SELECT user_id
+		FROM user_sessions
+		WHERE session_uuid = ? AND expires_at > ?`
 	err := r.db.GetContext(ctx, &userID, query, sessionID, time.Now())
 	if err != nil {
 		return 0, err
