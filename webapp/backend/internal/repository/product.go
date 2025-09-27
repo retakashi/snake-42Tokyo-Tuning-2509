@@ -3,6 +3,7 @@ package repository
 import (
 	"backend/internal/model"
 	"context"
+	"sync"
 )
 
 type ProductRepository struct {
@@ -13,38 +14,62 @@ func NewProductRepository(db DBTX) *ProductRepository {
 	return &ProductRepository{db: db}
 }
 
-// 商品一覧を全件取得し、アプリケーション側でページング処理を行う
+// 商品一覧をDB側でページングして取得し、並列でCOUNTクエリを実行する
 func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
 	var products []model.Product
-	baseQuery := `
-		SELECT product_id, name, value, weight, image, description
-		FROM products
-	`
-	args := []interface{}{}
+	var total int
+	var wg sync.WaitGroup
+	var productErr, countErr error
 
-	if req.Search != "" {
-		baseQuery += " WHERE (name LIKE ? OR description LIKE ?)"
-		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern)
+	// 商品データ取得（goroutine）
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		baseQuery := `
+			SELECT product_id, name, value, weight, image, description
+			FROM products
+		`
+		args := []interface{}{}
+
+		if req.Search != "" {
+			baseQuery += " WHERE (name LIKE ? OR description LIKE ?)"
+			searchPattern := "%" + req.Search + "%"
+			args = append(args, searchPattern, searchPattern)
+		}
+
+		baseQuery += " ORDER BY " + req.SortField + " " + req.SortOrder + " , product_id ASC"
+		baseQuery += " LIMIT ? OFFSET ?"
+		args = append(args, req.PageSize, req.Offset)
+
+		productErr = r.db.SelectContext(ctx, &products, baseQuery, args...)
+	}()
+
+	// 総数取得（goroutine）
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		countQuery := `
+			SELECT COUNT(*) FROM products
+		`
+		countArgs := []interface{}{}
+
+		if req.Search != "" {
+			countQuery += " WHERE (name LIKE ? OR description LIKE ?)"
+			countArgs = append(countArgs, "%"+req.Search+"%", "%"+req.Search+"%")
+		}
+		countErr = r.db.GetContext(ctx, &total, countQuery, countArgs...)
+	}()
+
+	// 両方のgoroutineの完了を待つ
+	wg.Wait()
+
+	// エラーチェック
+	if productErr != nil {
+		return nil, 0, productErr
+	}
+	if countErr != nil {
+		return nil, 0, countErr
 	}
 
-	baseQuery += " ORDER BY " + req.SortField + " " + req.SortOrder + " , product_id ASC"
-
-	err := r.db.SelectContext(ctx, &products, baseQuery, args...)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	total := len(products)
-	start := req.Offset
-	end := req.Offset + req.PageSize
-	if start > total {
-		start = total
-	}
-	if end > total {
-		end = total
-	}
-	pagedProducts := products[start:end]
-
-	return pagedProducts, total, nil
+	return products, total, nil
 }
