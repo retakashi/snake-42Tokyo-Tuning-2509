@@ -4,6 +4,7 @@ import (
 	"backend/internal/model"
 	"context"
 	"fmt"
+	"sync"
 )
 
 type ProductRepository struct {
@@ -29,21 +30,45 @@ func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req mo
 		args = append(args, searchPattern, searchPattern)
 	}
 
-	countQuery := "SELECT COUNT(*) FROM products" + filters
-	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
-		return nil, 0, err
-	}
-	if total == 0 {
-		return []model.Product{}, 0, nil
-	}
-
 	orderClause := fmt.Sprintf(" ORDER BY %s %s, product_id ASC", req.SortField, req.SortOrder)
 	query := "SELECT product_id, name, value, weight, image, description FROM products" + filters + orderClause + " LIMIT ? OFFSET ?"
 	listArgs := append([]interface{}{}, args...)
 	listArgs = append(listArgs, req.PageSize, req.Offset)
 
-	if err := r.db.SelectContext(ctx, &products, query, listArgs...); err != nil {
-		return nil, 0, err
+	errCh := make(chan error, 2)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		countQuery := "SELECT COUNT(*) FROM products" + filters
+		if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+			errCh <- err
+			cancel()
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := r.db.SelectContext(ctx, &products, query, listArgs...); err != nil {
+			errCh <- err
+			cancel()
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	if total == 0 {
+		return []model.Product{}, 0, nil
 	}
 
 	return products, total, nil
