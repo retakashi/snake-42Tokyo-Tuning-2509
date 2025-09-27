@@ -90,33 +90,35 @@ test("ロボット: delivery-plan → delivering → status更新で completed",
   ]);
   expect((await searchRes1.json())?.data).toBeDefined();
 
-  // delivering になるまで短ポーリング（最大 ~5s）
-  let deliveringVisible = false;
-  for (let i = 0; i < 5 && !deliveringVisible; i++) {
-    // グリッドを再読込（検索ボタン再クリック）
-    const [res] = await Promise.all([
-      page.waitForResponse(
-        (r) =>
-          r.url().includes("/api/v1/orders") &&
-          r.request().method() === "POST" &&
-          r.status() === 200
-      ),
-      page.getByRole("button", { name: "検索" }).click(),
-    ]);
-    void res; // 念のため待ち
+  const ordersRow = page
+    .locator('[role="row"]')
+    .filter({ has: page.getByText(productName, { exact: false }) })
+    .first();
 
-    const row = page
-      .locator('[role="row"]')
-      .filter({ has: page.getByText(productName, { exact: false }) })
-      .first();
-    // 行内の「配送中」（delivering）チップを探す
-    deliveringVisible = await row
-      .getByText("配送中")
-      .isVisible()
-      .catch(() => false);
-    if (!deliveringVisible) await page.waitForTimeout(1000);
-  }
-  expect(deliveringVisible, "delivery-plan 後に配送中になること").toBeTruthy();
+  const waitForStatusChip = async (label: string, timeoutMs = 5000) => {
+    await expect(async () => {
+      const [res] = await Promise.all([
+        page.waitForResponse(
+          (r) =>
+            r.url().includes("/api/v1/orders") &&
+            r.request().method() === "POST" &&
+            r.status() === 200
+        ),
+        page.getByRole("button", { name: "検索" }).click(),
+      ]);
+      void res;
+
+      await expect(ordersRow).toBeVisible({ timeout: 300 });
+      await expect(ordersRow.getByText(label)).toBeVisible({ timeout: 300 });
+    }).toPass({ timeout: timeoutMs, intervals: [200, 400, 800] });
+  };
+
+  // delivering 反映を待機
+  await waitForStatusChip("配送中", 5000);
+  expect(
+    await ordersRow.getByText("配送中").isVisible(),
+    "delivery-plan 後に配送中になること"
+  ).toBeTruthy();
 
   // 4) status更新APIで completed に
   const updResp = await page.request.patch("/api/robot/orders/status", {
@@ -129,28 +131,9 @@ test("ロボット: delivery-plan → delivering → status更新で completed",
   expect(updResp.ok()).toBeTruthy();
 
   // completed 反映待ち（同様に短ポーリング）
-  let completedVisible = false;
-  for (let i = 0; i < 5 && !completedVisible; i++) {
-    const [res] = await Promise.all([
-      page.waitForResponse(
-        (r) =>
-          r.url().includes("/api/v1/orders") &&
-          r.request().method() === "POST" &&
-          r.status() === 200
-      ),
-      page.getByRole("button", { name: "検索" }).click(),
-    ]);
-    void res;
-
-    const row = page
-      .locator('[role="row"]')
-      .filter({ has: page.getByText(productName, { exact: false }) })
-      .first();
-    completedVisible = await row
-      .getByText("配送完了")
-      .isVisible()
-      .catch(() => false);
-    if (!completedVisible) await page.waitForTimeout(1000);
-  }
-  expect(completedVisible, "status更新後に配送完了になること").toBeTruthy();
+  await waitForStatusChip("配送完了", 7000);
+  expect(
+    await ordersRow.getByText("配送完了").isVisible(),
+    "status更新後に配送完了になること"
+  ).toBeTruthy();
 });

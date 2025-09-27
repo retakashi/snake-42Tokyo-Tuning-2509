@@ -4,3 +4,4 @@
 *.zip
 sample/*
 deploy_*.sh
+*.pem
