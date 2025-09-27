@@ -35,6 +35,7 @@ func (r *SessionRepository) Create(ctx context.Context, userBusinessID int, dura
 // セッションIDからユーザーIDを取得
 func (r *SessionRepository) FindUserBySessionID(ctx context.Context, sessionID string) (int, error) {
 	var userID int
+	// JOINを避けて直接セッションテーブルから検索（パフォーマンス最適化）
 	query := `
 		SELECT 
 			u.user_id
