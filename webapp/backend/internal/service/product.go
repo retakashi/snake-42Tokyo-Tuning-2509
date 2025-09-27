@@ -43,13 +43,14 @@ func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []m
 		// バッチインサート用の注文リストを事前構築
 		orders := make([]model.Order, 0, totalOrders)
 		
-		// robot.goのロジック次第で改善可能↓
+		// 効率的な注文作成: 構造体を1回作成して使い回し
 		for pID, quantity := range itemsToProcess {
+			order := model.Order{
+				UserID:    userID,
+				ProductID: pID,
+			}
 			for i := 0; i < quantity; i++ {
-				orders = append(orders, model.Order{
-					UserID:    userID,
-					ProductID: pID,
-				})
+				orders = append(orders, order)
 			}
 		}
 

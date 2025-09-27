@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 )
 
@@ -101,13 +102,57 @@ type pathNode struct {
 	prevIdx   int
 }
 
+type orderWithRatio struct {
+	order model.Order
+	ratio float64
+	index int
+}
+
+// 貪欲法による高速な注文選択（小規模ケース用）
+func selectOrdersGreedy(ctx context.Context, positiveOrders, zeroWeightOrders []model.Order, robotID string, robotCapacity, baseValue int) (model.DeliveryPlan, error) {
+	ratios := make([]orderWithRatio, 0, len(positiveOrders))
+	for i, o := range positiveOrders {
+		if o.Weight > 0 {
+			ratios = append(ratios, orderWithRatio{
+				order: o,
+				ratio: float64(o.Value) / float64(o.Weight),
+				index: i,
+			})
+		}
+	}
+
+	sort.Slice(ratios, func(i, j int) bool {
+		return ratios[i].ratio > ratios[j].ratio
+	})
+
+	selected := make([]model.Order, 0, len(zeroWeightOrders)+len(ratios))
+	selected = append(selected, zeroWeightOrders...)
+
+	currentWeight := 0
+	totalValue := baseValue
+	for _, r := range ratios {
+		if currentWeight + r.order.Weight <= robotCapacity {
+			selected = append(selected, r.order)
+			currentWeight += r.order.Weight
+			totalValue += r.order.Value
+		}
+	}
+
+	return model.DeliveryPlan{
+		RobotID:     robotID,
+		TotalWeight: currentWeight,
+		TotalValue:  totalValue,
+		Orders:      selected,
+	}, nil
+}
+
 func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID string, robotCapacity int) (model.DeliveryPlan, error) {
 	if robotCapacity <= 0 || len(orders) == 0 {
 		return model.DeliveryPlan{RobotID: robotID, Orders: make([]model.Order, 0)}, nil
 	}
 
 	// フィルタ: 積載量を超える注文は候補外に
-	filtered := orders[:0]
+	filtered := make([]model.Order, 0, len(orders))
 	for _, o := range orders {
 		if o.Weight <= robotCapacity {
 			filtered = append(filtered, o)
@@ -118,8 +163,8 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		return model.DeliveryPlan{RobotID: robotID, Orders: make([]model.Order, 0)}, nil
 	}
 
-	var zeroWeightOrders []model.Order
-	positiveOrders := orders[:0]
+	zeroWeightOrders := make([]model.Order, 0, len(orders)/4)
+	positiveOrders := make([]model.Order, 0, len(orders))
 	totalWeight := 0
 	for _, o := range orders {
 		if o.Weight == 0 {
@@ -146,6 +191,11 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		}, nil
 	}
 
+	// 小規模な場合は貪欲法で高速処理
+	if len(positiveOrders) <= 10 || robotCapacity <= 50 {
+		return selectOrdersGreedy(ctx, positiveOrders, zeroWeightOrders, robotID, robotCapacity, totalValue)
+	}
+
 	effectiveCap := robotCapacity
 	if totalWeight < effectiveCap {
 		effectiveCap = totalWeight
@@ -159,14 +209,21 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		}, nil
 	}
 
+	// 価値密度でソートして効率化
+	sort.Slice(positiveOrders, func(i, j int) bool {
+		ratioI := float64(positiveOrders[i].Value) / float64(positiveOrders[i].Weight)
+		ratioJ := float64(positiveOrders[j].Value) / float64(positiveOrders[j].Weight)
+		return ratioI > ratioJ
+	})
+
 	bestValue := make([]int, effectiveCap+1)
 	bestPathIdx := make([]int, effectiveCap+1)
 	for i := range bestPathIdx {
 		bestPathIdx[i] = -1
 	}
-	paths := make([]pathNode, 0, len(positiveOrders))
+	paths := make([]pathNode, 0, len(positiveOrders)*effectiveCap/8)
 
-	const checkEvery = 4096
+	const checkEvery = 2048
 	steps := 0
 
 	for i, order := range positiveOrders {
@@ -178,6 +235,13 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 			continue
 		}
 		v := order.Value
+
+		// 早期枝刈り: 現在の最適解より明らかに劣る場合はスキップ
+		maxPossibleValue := bestValue[effectiveCap]
+		if maxPossibleValue > 0 && v < maxPossibleValue/10 {
+			continue
+		}
+
 		for currentCap := effectiveCap; currentCap >= w; currentCap-- {
 			candidate := bestValue[currentCap-w] + v
 			if candidate > bestValue[currentCap] {
