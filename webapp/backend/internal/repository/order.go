@@ -109,7 +109,10 @@ func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.
 		args = append(args, pattern)
 	}
 
-	whereClause := " WHERE " + strings.Join(filters, " AND ")
+	whereClause := ""
+	if len(filters) > 0 {
+		whereClause = " WHERE " + strings.Join(filters, " AND ")
+	}
 
 	orderClause := fmt.Sprintf(" ORDER BY %s %s", req.SortField, req.SortOrder)
 	if req.SortField != "o.order_id" {
