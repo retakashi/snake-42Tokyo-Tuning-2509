@@ -30,6 +30,26 @@ paths:
                   message:
                     type: string
                     example: Login successful
+  /api/verify:
+    get:
+      summary: 認証情報確認
+      description: 現在のセッションが有効かどうかを確認し、ユーザー情報を取得する
+      security:
+        - CookieAuth: []
+      responses:
+        '200':
+          description: 認証情報有効
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: 認証失敗
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Unauthorized
   /api/v1/products:
     post:
       summary: 商品一覧取得
@@ -247,6 +267,18 @@ components:
       required:
         - user_name
         - password
+    LoginResponse:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          description: ユーザーID
+        user_name:
+          type: string
+          description: ユーザー名
+      required:
+        - user_id
+        - user_name
     OrderListRequest:
       type: object
       properties:

@@ -58,6 +58,11 @@ type UpdateOrderStatusRequest struct {
 	NewStatus string `json:"new_status"`
 }
 
+type LoginResponse struct {
+	UserID   int    `json:"user_id"`
+	UserName string `json:"user_name"`
+}
+
 type ListRequest struct {
 	Search    string `json:"search"`
 	Type      string `json:"type"`

@@ -50,3 +50,34 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Login successful"})
 }
+
+// 認証情報確認 - セッションが有効か確認
+func (h *AuthHandler) Verify(w http.ResponseWriter, r *http.Request) {
+	// パフォーマンス向上のためログを削除
+
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		// パフォーマンス向上のため詳細ログを削除
+		http.Error(w, "Unauthorized: No session cookie", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := h.AuthSvc.VerifySession(r.Context(), cookie.Value)
+	if err != nil {
+		if errors.Is(err, service.ErrUserNotFound) {
+			http.Error(w, "Unauthorized: Invalid session", http.StatusUnauthorized)
+		} else {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := model.LoginResponse{
+		UserID:   user.UserID,
+		UserName: user.UserName,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}

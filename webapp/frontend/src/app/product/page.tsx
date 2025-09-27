@@ -17,6 +17,7 @@ import {
   Paper,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
+import { verifyAuth } from "@/api/user";
 
 type Product = {
   product_id: number;
@@ -40,8 +41,23 @@ export default function ProductListPage() {
     { field: "product_id", sort: "asc" },
   ]);
   const [pendingSearchQuery, setPendingSearchQuery] = useState<string>("");
+  const [currentUser, setCurrentUser] = useState<{ user_id: number; user_name: string } | null>(null);
 
   const router = useRouter();
+
+  // 認証状態を確認
+  useEffect(() => {
+    const checkAuth = async () => {
+      const user = await verifyAuth();
+      if (!user) {
+        // 認証が無効な場合、ログインページにリダイレクト
+        router.push("/login");
+      } else {
+        setCurrentUser(user);
+      }
+    };
+    checkAuth();
+  }, [router]);
 
   // バックエンドAPIから商品一覧を取得（サーバーサイドソート・ページング対応）
   const fetchProducts = useCallback(

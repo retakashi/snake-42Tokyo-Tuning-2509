@@ -85,6 +85,38 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 	return sessionID, expiresAt, nil
 }
 
+func (s *AuthService) VerifySession(ctx context.Context, sessionID string) (*model.User, error) {
+	ctx, span := otel.Tracer("service.auth").Start(ctx, "AuthService.VerifySession")
+	defer span.End()
+
+	var user *model.User
+	err := utils.WithTimeout(ctx, func(ctx context.Context) error {
+		userID, err := s.store.SessionRepo.FindUserBySessionID(ctx, sessionID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrUserNotFound
+			}
+			return ErrInternalServer
+		}
+
+		fetchStart := time.Now()
+		user, err = s.store.UserRepo.FindByUserID(ctx, userID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrUserNotFound
+			}
+			return ErrInternalServer
+		}
+		span.AddEvent("user fetched", traceAttributesFromDuration("user_lookup_ms", fetchStart))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
 func (s *AuthService) getUser(ctx context.Context, userName string) (*model.User, error) {
 	if s.userCache != nil {
 		if cached := s.userCache.get(userName); cached != nil {
