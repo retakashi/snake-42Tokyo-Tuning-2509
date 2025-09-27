@@ -25,32 +25,40 @@ func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []m
 	defer span.End()
 	span.SetAttributes(attribute.Int("user.id", userID), attribute.Int("items.count", len(items)))
 
+	// 事前に総注文数を計算し、容量を最適化
+	totalOrders := 0
+	itemsToProcess := make(map[int]int, len(items))
+	for _, item := range items {
+		itemsToProcess[item.ProductID] += item.Quantity // 重複商品の数量合算
+		totalOrders += item.Quantity
+	}
+
+	if len(itemsToProcess) == 0 {
+		return []string{}, nil
+	}
+
 	var insertedOrderIDs []string
 
 	err := s.store.ExecTx(ctx, func(txStore *repository.Store) error {
-		itemsToProcess := make(map[int]int)
-		for _, item := range items {
-			if item.Quantity > 0 {
-				itemsToProcess[item.ProductID] = item.Quantity
-			}
-		}
-		if len(itemsToProcess) == 0 {
-			return nil
-		}
-
+		// バッチインサート用の注文リストを事前構築
+		orders := make([]model.Order, 0, totalOrders)
+		
+		// robot.goのロジック次第で改善可能↓
 		for pID, quantity := range itemsToProcess {
 			for i := 0; i < quantity; i++ {
-				order := &model.Order{
+				orders = append(orders, model.Order{
 					UserID:    userID,
 					ProductID: pID,
-				}
-				orderID, err := txStore.OrderRepo.Create(ctx, order)
-				if err != nil {
-					return err
-				}
-				insertedOrderIDs = append(insertedOrderIDs, orderID)
+				})
 			}
 		}
+
+		// バッチインサートで一括実行（N+1問題解決）
+		batchIDs, err := txStore.OrderRepo.CreateBatch(ctx, orders)
+		if err != nil {
+			return err
+		}
+		insertedOrderIDs = batchIDs
 		return nil
 	})
 

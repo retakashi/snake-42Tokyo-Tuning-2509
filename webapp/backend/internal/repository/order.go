@@ -165,3 +165,41 @@ func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.
 
 	return orders, total, nil
 }
+
+// 複数の注文を一括で作成し、生成された注文IDのリストを返す
+func (r *OrderRepository) CreateBatch(ctx context.Context, orders []model.Order) ([]string, error) {
+	// バッチINSERT用のクエリとパラメータを構築
+	valueStrings := make([]string, 0, len(orders))
+	valueArgs := make([]interface{}, 0, len(orders)*2)
+
+	for _, order := range orders {
+		valueStrings = append(valueStrings, "(?, ?, 'shipping', NOW())")
+		valueArgs = append(valueArgs, order.UserID, order.ProductID)
+	}
+
+	query := `INSERT INTO orders (user_id, product_id, shipped_status, created_at) VALUES ` + strings.Join(valueStrings, ",")
+	result, err := r.db.ExecContext(ctx, query, valueArgs...)
+	if err != nil {
+		return nil, err
+	}
+
+	// 最初に挿入されたIDを取得
+	firstID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	// 挿入された行数を取得
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	// 連続するIDのリストを生成
+	orderIDs := make([]string, 0, rowsAffected)
+	for i := int64(0); i < rowsAffected; i++ {
+		orderIDs = append(orderIDs, fmt.Sprintf("%d", firstID+i))
+	}
+
+	return orderIDs, nil
+}
