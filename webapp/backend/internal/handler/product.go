@@ -41,12 +41,15 @@ func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 	if req.PageSize <= 0 {
 		req.PageSize = 20
 	}
-	if req.SortField == "" {
-		req.SortField = "product_id"
+	allowedSortFields := map[string]string{
+		"product_id":  "product_id",
+		"name":        "name",
+		"value":       "value",
+		"weight":      "weight",
+		"image":       "image",
+		"description": "description",
 	}
-	if req.SortOrder == "" {
-		req.SortOrder = "asc"
-	}
+	sanitizeListRequest(&req, allowedSortFields, "product_id", "asc")
 	req.Offset = (req.Page - 1) * req.PageSize
 
 	products, total, err := h.ProductSvc.FetchProducts(r.Context(), userID, req)

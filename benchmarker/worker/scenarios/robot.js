@@ -58,7 +58,6 @@ function getDeliveryPlan(headers, mode = "") {
       }
       if (orderIds.length === 0) {
         bench_robot_getDeliveryPlan_fail_count.add(1);
-        // include response body for easier debugging
         fail(`No order_id found in delivery plan response: ${robot_res.body}`);
       }
     } else {

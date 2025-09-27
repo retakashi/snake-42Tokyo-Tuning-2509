@@ -20,6 +20,11 @@ func NewProductService(store *repository.Store) *ProductService {
 }
 
 func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []model.RequestItem) ([]string, error) {
+	tracer := otel.Tracer("app/custom")
+	ctx, span := tracer.Start(ctx, "CreateOrders")
+	defer span.End()
+	span.SetAttributes(attribute.Int("user.id", userID), attribute.Int("items.count", len(items)))
+
 	var insertedOrderIDs []string
 
 	tracer := otel.Tracer("app/custom")

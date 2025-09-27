@@ -38,13 +38,18 @@ func (h *OrderHandler) List(w http.ResponseWriter, r *http.Request) {
 	if req.PageSize <= 0 {
 		req.PageSize = 20
 	}
-	if req.SortField == "" {
-		req.SortField = "order_id"
+	allowedSortFields := map[string]string{
+		"order_id":       "o.order_id",
+		"product_name":   "p.name",
+		"created_at":     "o.created_at",
+		"shipped_status": "o.shipped_status",
+		"arrived_at":     "o.arrived_at",
 	}
-	if req.SortOrder == "" {
-		req.SortOrder = "desc"
-	}
+	sanitizeListRequest(&req, allowedSortFields, "o.order_id", "desc")
 	if req.Type != "" && req.Type != "partial" && req.Type != "prefix" {
+		req.Type = "partial"
+	}
+	if req.Type == "" {
 		req.Type = "partial"
 	}
 

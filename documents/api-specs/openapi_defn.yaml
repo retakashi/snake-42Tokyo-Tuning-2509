@@ -30,38 +30,12 @@ paths:
                   message:
                     type: string
                     example: Login successful
-  # TODO いらない？
-  # /api/logout:
-  #   post:
-  #     summary: ログアウト
-  #     requestBody:
-  #       required: true
-  #       content:
-  #         application/json:
-  #           schema:
-  #             $ref: '#/components/schemas/LogoutRequest'
-  #     responses:
-  #       '200':
-  #         description: ログアウト成功
-  # /api/verify:
-  #   get:
-  #     summary: 認証情報確認
-  #     security:
-  #       - Bearer: []
-  #     responses:
-  #       '200':
-  #         description: 認証情報有効
-  #         content:
-  #           application/json:
-  #             schema:
-  #               $ref: '#/components/schemas/LoginResponse'
-  # TODO レスポンスにuser_idある？
   /api/v1/products:
     post:
       summary: 商品一覧取得
       description: 商品一覧をページング・ソート条件付きで取得する
       security:
-        - Bearer: []
+        - CookieAuth: []
       requestBody:
         required: true
         content:
@@ -106,7 +80,7 @@ paths:
       summary: 注文作成
       description: 商品の注文を作成する
       security:
-        - Bearer: []
+        - CookieAuth: []
       requestBody:
         required: true
         content:
@@ -133,7 +107,7 @@ paths:
       summary: 注文履歴取得
       description: 注文履歴をページング・ソート条件付きで取得する
       security:
-        - Bearer: []
+        - CookieAuth: []
       requestBody:
         required: true
         content:
@@ -155,9 +129,11 @@ paths:
                   total:
                     type: integer
   /api/robot/orders/status:
-    post:
+    patch:
       summary: 注文ステータスの更新
       description: 配送完了時に注文のステータスを更新する
+      security:
+        - RobotApiKey: []
       requestBody:
         required: true
         content:
@@ -176,6 +152,8 @@ paths:
     get:
       summary: 配送計画の取得
       description: 指定したcapacityでロボットの配送計画を返す
+      security:
+        - RobotApiKey: []
       parameters:
         - in: query
           name: capacity
@@ -207,59 +185,68 @@ components:
           type: string
         description:
           type: string
-      required: [id, name, value, weight, image, description]
+      required:
+        - product_id
+        - name
+        - value
+        - weight
     Order:
       type: object
       properties:
-        id:
-          type: integer
-        product_id:
+        order_id:
           type: integer
         user_id:
           type: integer
-        status:
+        product_id:
+          type: integer
+        product_name:
           type: string
+        shipped_status:
+          type: string
+        weight:
+          type: integer
+        value:
+          type: integer
         created_at:
           type: string
           format: date-time
-      required: [id, product_id, user_id, status, created_at]
+        arrived_at:
+          type: object
+          properties:
+            Time:
+              type: string
+              format: date-time
+            Valid:
+              type: boolean
+      required:
+        - order_id
+        - user_id
+        - product_id
+        - shipped_status
+        - created_at
     DeliveryPlan:
       type: object
       properties:
-        RobotID:
+        robot_id:
           type: string
-        TotalWeight:
+        total_weight:
           type: integer
-        TotalValue:
+        total_value:
           type: integer
-        Orders:
+        orders:
           type: array
           items:
             $ref: '#/components/schemas/Order'
     LoginRequest:
       type: object
       properties:
-        username:
+        user_name:
           type: string
         password:
           type: string
-      required: [username, password]
-    LogoutRequest:
-      type: object
-      properties:
-        token:
-          type: string
-      required: [token]
-    OrderRequest:
-      type: object
-      properties:
-        product_id:
-          type: integer
-        user_id:
-          type: integer
-        quantity:
-          type: integer
-      required: [product_id, user_id, quantity]
+      required:
+        - user_name
+        - password
     OrderListRequest:
       type: object
       properties:
@@ -279,19 +266,11 @@ components:
         sort_field:
           type: string
           description: ソート対象のフィールド
-          enum: [order_id, product_id, status, created_at]
+          enum: [order_id, product_name, shipped_status, created_at, arrived_at]
         sort_order:
           type: string
           description: ソート順
           enum: [asc, desc]
-    UpdateStatusRequest:
-      type: object
-      properties:
-        order_id:
-          type: integer
-        status:
-          type: string
-      required: [order_id, status]
     ProductListRequest:
       type: object
       properties:
@@ -301,7 +280,7 @@ components:
         type:
           type: string
           description: 検索タイプ
-          enum: [partial, exact]
+          enum: [partial, prefix]
         page:
           type: integer
           description: ページ番号（省略時は1）
@@ -311,7 +290,7 @@ components:
         sort_field:
           type: string
           description: ソート対象のフィールド
-          enum: [product_id, name, value, weight]
+          enum: [product_id, name, value, weight, image, description]
         sort_order:
           type: string
           description: ソート順
@@ -341,7 +320,16 @@ components:
         new_status:
           type: string
           description: 新しい注文ステータス
-          enum: [shipping, delivering, complete]
+          enum: [shipping, delivering, completed]
       required:
         - order_id
         - new_status
+  securitySchemes:
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+    RobotApiKey:
+      type: apiKey
+      in: header
+      name: X-API-KEY
