@@ -15,6 +15,7 @@ func main() {
 	} else {
 		defer func() { _ = shutdown(context.Background()) }()
 	}
+
 	srv, dbConn, err := server.NewServer()
 	if err != nil {
 		log.Fatalf("Failed to initialize server: %v", err)
