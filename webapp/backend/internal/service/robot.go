@@ -169,6 +169,9 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 	const checkEvery = 4096
 	steps := 0
 
+	bestCap := 0
+	maxValue := 0
+
 	for i, order := range positiveOrders {
 		if err := ctx.Err(); err != nil {
 			return model.DeliveryPlan{}, err
@@ -186,6 +189,10 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 				pathIdx := len(paths)
 				paths = append(paths, pathNode{itemIndex: i, prevIdx: prevIdx})
 				bestPathIdx[currentCap] = pathIdx
+				if candidate > maxValue || (candidate == maxValue && currentCap < bestCap) {
+					maxValue = candidate
+					bestCap = currentCap
+				}
 			}
 			steps++
 			if steps%checkEvery == 0 {
@@ -195,15 +202,6 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 				default:
 				}
 			}
-		}
-	}
-
-	bestCap := 0
-	maxValue := 0
-	for cap := 0; cap <= effectiveCap; cap++ {
-		if bestValue[cap] > maxValue {
-			maxValue = bestValue[cap]
-			bestCap = cap
 		}
 	}
 
