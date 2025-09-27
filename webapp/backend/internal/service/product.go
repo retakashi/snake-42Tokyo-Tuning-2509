@@ -6,6 +6,9 @@ import (
 
 	"backend/internal/model"
 	"backend/internal/repository"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type ProductService struct {
@@ -18,6 +21,11 @@ func NewProductService(store *repository.Store) *ProductService {
 
 func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []model.RequestItem) ([]string, error) {
 	var insertedOrderIDs []string
+
+	tracer := otel.Tracer("app/custom")
+	ctx, span := tracer.Start(ctx, "CreateOrders")
+	defer span.End()
+	span.SetAttributes(attribute.Int("user.id", userID), attribute.Int("items.count", len(items)))
 
 	err := s.store.ExecTx(ctx, func(txStore *repository.Store) error {
 		itemsToProcess := make(map[int]int)
