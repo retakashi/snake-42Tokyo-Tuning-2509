@@ -11,8 +11,6 @@ CREATE TABLE `users` (
   `user_name` VARCHAR(255) NOT NULL
   );
 
-CREATE UNIQUE INDEX idx_users_user_name ON `users` (`user_name`);
-
 -- LOAD DATA INFILE '/docker-entrypoint-initdb.d/csv/users.csv'
 -- INTO TABLE users
 -- FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n'
@@ -48,9 +46,6 @@ CREATE TABLE orders (
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE
 );
-
-CREATE INDEX idx_orders_user_id_created_at ON orders (user_id, created_at);
-CREATE INDEX idx_orders_shipped_status_product ON orders (shipped_status, product_id);
 
 -- LOAD DATA INFILE '/docker-entrypoint-initdb.d/csv/orders.csv'
 -- INTO TABLE orders
