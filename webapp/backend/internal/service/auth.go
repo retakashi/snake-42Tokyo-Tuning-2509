@@ -14,9 +14,6 @@ import (
 	"backend/internal/repository"
 	"backend/internal/service/utils"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -42,9 +39,6 @@ func NewAuthService(store *repository.Store) *AuthService {
 }
 
 func (s *AuthService) Login(ctx context.Context, userName, password string) (string, time.Time, error) {
-	ctx, span := otel.Tracer("service.auth").Start(ctx, "AuthService.Login")
-	defer span.End()
-
 	var sessionID string
 	var expiresAt time.Time
 	err := utils.WithTimeout(ctx, func(ctx context.Context) error {
@@ -57,16 +51,15 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 			}
 			return ErrInternalServer
 		}
-		span.AddEvent("user fetched", traceAttributesFromDuration("user_lookup_ms", fetchStart))
+		log.Printf("[Login] User fetched in %dms", time.Since(fetchStart).Milliseconds())
 
 		verifyStart := time.Now()
 		err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 		if err != nil {
 			log.Printf("[Login] パスワード検証失敗: %v", err)
-			span.RecordError(err)
 			return ErrInvalidPassword
 		}
-		span.AddEvent("password verified", traceAttributesFromDuration("password_verify_ms", verifyStart))
+		log.Printf("[Login] Password verified in %dms", time.Since(verifyStart).Milliseconds())
 
 		sessionStart := time.Now()
 		sessionDuration := 24 * time.Hour
@@ -75,7 +68,7 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 			log.Printf("[Login] セッション生成失敗: %v", err)
 			return ErrInternalServer
 		}
-		span.AddEvent("session created", traceAttributesFromDuration("session_create_ms", sessionStart))
+		log.Printf("[Login] Session created in %dms", time.Since(sessionStart).Milliseconds())
 		return nil
 	})
 	if err != nil {
@@ -99,11 +92,6 @@ func (s *AuthService) getUser(ctx context.Context, userName string) (*model.User
 		s.userCache.set(userName, user)
 	}
 	return user, nil
-}
-
-func traceAttributesFromDuration(key string, start time.Time) trace.EventOption {
-	dur := time.Since(start).Milliseconds()
-	return trace.WithAttributes(attribute.Int64(key, dur))
 }
 
 func parseDurationEnv(key string, fallback time.Duration) time.Duration {

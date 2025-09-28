@@ -1,7 +1,6 @@
 package db
 
 import (
-	"backend/internal/telemetry"
 	"context"
 	"fmt"
 	"log"
@@ -20,8 +19,7 @@ func InitDBConnection() (*sqlx.DB, error) {
 	dsn := fmt.Sprintf("%s?charset=utf8mb4&parseTime=True&loc=Local", dbUrl)
 	log.Printf(dsn)
 
-	driverName := telemetry.WrapSQLDriver("mysql")
-	dbConn, err := sqlx.Open(driverName, dsn)
+	dbConn, err := sqlx.Open("mysql", dsn)
 	if err != nil {
 		log.Printf("Failed to open database connection: %v", err)
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
