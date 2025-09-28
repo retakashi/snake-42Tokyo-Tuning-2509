@@ -38,19 +38,24 @@ func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []m
 			return nil
 		}
 
+		// バルクインサート用の注文リストを構築
+		var ordersToInsert []model.Order
 		for pID, quantity := range itemsToProcess {
 			for i := 0; i < quantity; i++ {
-				order := &model.Order{
+				order := model.Order{
 					UserID:    userID,
 					ProductID: pID,
 				}
-				orderID, err := txStore.OrderRepo.Create(ctx, order)
-				if err != nil {
-					return err
-				}
-				insertedOrderIDs = append(insertedOrderIDs, orderID)
+				ordersToInsert = append(ordersToInsert, order)
 			}
 		}
+
+		// バルクインサートを実行
+		orderIDs, err := txStore.OrderRepo.CreateBulk(ctx, ordersToInsert)
+		if err != nil {
+			return err
+		}
+		insertedOrderIDs = orderIDs
 		return nil
 	})
 

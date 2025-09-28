@@ -32,6 +32,49 @@ func (r *OrderRepository) Create(ctx context.Context, order *model.Order) (strin
 	return fmt.Sprintf("%d", id), nil
 }
 
+// 複数の注文を一括で作成し、生成された注文IDを返す
+func (r *OrderRepository) CreateBulk(ctx context.Context, orders []model.Order) ([]string, error) {
+	if len(orders) == 0 {
+		return []string{}, nil
+	}
+
+	// バルクインサート用のクエリを構築
+	valueStrings := make([]string, 0, len(orders))
+	valueArgs := make([]interface{}, 0, len(orders)*2)
+
+	for _, order := range orders {
+		valueStrings = append(valueStrings, "(?, ?, 'shipping', NOW())")
+		valueArgs = append(valueArgs, order.UserID, order.ProductID)
+	}
+
+	query := fmt.Sprintf("INSERT INTO orders (user_id, product_id, shipped_status, created_at) VALUES %s",
+		strings.Join(valueStrings, ","))
+
+	result, err := r.db.ExecContext(ctx, query, valueArgs...)
+	if err != nil {
+		return nil, err
+	}
+
+	lastInsertId, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	// MySQLではバルクインサート時、LastInsertId()は最初のIDを返し、
+	// 以降のIDは連続することが保証されている（同一トランザクション内）
+	orderIDs := make([]string, 0, int(rowsAffected))
+	for i := int64(0); i < rowsAffected; i++ {
+		orderIDs = append(orderIDs, fmt.Sprintf("%d", lastInsertId+i))
+	}
+
+	return orderIDs, nil
+}
+
 // 複数の注文IDのステータスを一括で更新
 // 主に配送ロボットが注文を引き受けた際に一括更新をするために使用
 func (r *OrderRepository) UpdateStatuses(ctx context.Context, orderIDs []int64, newStatus string) error {
