@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
-	"github.com/riandyrn/otelchi"
 )
 
 type Server struct {
@@ -47,13 +46,7 @@ func NewServer() (*Server, *sqlx.DB, error) {
 	robotAuthMW := middleware.RobotAuthMiddleware(robotAPIKey)
 
 	r := chi.NewRouter()
-	r.Use(otelchi.Middleware(
-		"backend-api",
-		otelchi.WithChiRoutes(r),
-		otelchi.WithFilter(func(req *http.Request) bool {
-			return req.URL.Path != "/api/health"
-		}),
-	))
+	// トレースミドルウェアを無効化してパフォーマンス最適化
 
 	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
